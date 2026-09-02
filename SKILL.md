@@ -17,9 +17,6 @@ live:
 
 # 3. Architecture
 <Paste an ASCII or image diagram. Every box must be something you can explain.>
-# 3. Architecture
-
-## Data Model (ER Diagram)
 
     USERS {
         int id PK
