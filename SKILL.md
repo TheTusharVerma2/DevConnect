@@ -21,18 +21,6 @@ live:
 
 ## Data Model (ER Diagram)
 
-​```mermaid
-erDiagram
-    USERS ||--|| PROFILES : has
-    USERS ||--o{ POSTS : writes
-    USERS ||--o{ COMMENTS : writes
-    USERS ||--o{ FOLLOWS : "follower_id"
-    USERS ||--o{ FOLLOWS : "followed_id"
-    USERS ||--o{ LIKES : "user_id"
-    POSTS ||--o{ COMMENTS : has
-    POSTS ||--o{ LIKES : "post_id"
-    COMMENTS ||--o{ COMMENTS : "parent_comment_id"
-
     USERS {
         int id PK
         string email
