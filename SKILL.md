@@ -81,16 +81,37 @@ Components:
 - [ ] <skill>    evidence: <file / commit / endpoint that proves it>
 - [ ] <skill>    evidence: <...>
 
+- [x] Node.js ↔ PostgreSQL connection via connection pooling    evidence: server/db.js, GET /api/db-test
+- [x] Password hashing with bcrypt, parameterized SQL queries    evidence: server/routes/auth.js POST /register
+- [x] JWT-based auth: access/refresh token issuance on login    evidence: server/routes/auth.js POST /login
 # 6. Numbers I measured
 | Metric | Before | After | How I measured it |
 |---|---|---|---|
 | | | | |
 
 # 7. Things that broke and how I fixed them
-1. Symptom: <what I saw>
-   Cause:   <what it actually was>
-   Fix:     <what I changed>
-   Lesson:  <what I now do by default>
+1. Symptom: curl to localhost:5000/api/health returned 403 "Access denied" even though the server logged "running on port 5000" with no errors
+   Cause:   macOS's AirPlay Receiver (Control Center) listens on port 5000 by default and intercepted the request before it ever reached Express
+   Fix:     Changed the server to run on port 4000 instead
+   Lesson:  On Mac, avoid port 5000 (and 7000, also used by AirPlay) for local dev servers — check `lsof -i :<port>` early when a server "runs" but doesn't respond as expected.
+2. Symptom: Duplicate registration with an already-used email returned a generic 
+   500 "Registration failed" error instead of a clear message
+   Cause:   The UNIQUE constraint on users.email correctly rejected the duplicate 
+   at the database level, but the catch block treated all errors the same way, 
+   masking an expected case as a server failure
+   Fix:     Checked err.code === '23505' (Postgres's unique-violation code) in 
+   the catch block and returned a 409 Conflict with a specific "Email already 
+   registered" message instead
+   Lesson: in case of unique-violation, return 409 conflict , else return 500 internal-server-error.
+3. Symptom: POST /login crashed with "Error: secretOrPrivateKey must have a value" 
+   even though registration worked fine and the database query succeeded
+   Cause:   JWT_SECRET and JWT_REFRESH_SECRET were referenced in jwt.sign() but 
+   were never actually added to .env — process.env.JWT_SECRET was undefined
+   Fix:     Generated two random secrets with crypto.randomBytes(32).toString('hex'), 
+   added them to .env, restarted the server (nodemon doesn't reload .env changes)
+   Lesson:  JWT_SECRET and JWT_REFRESH_SECRET env variables must always be present 
+   in .env for the jwt.sign() method to work properly. Always generate and add them 
+   before using jwt.sign() to avoid runtime errors.
 
 # 8. What I would do differently at 100x scale
 <Three bullets. This is the question senior interviewers always ask.>
