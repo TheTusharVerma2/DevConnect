@@ -153,6 +153,26 @@ live:
    verified its file size with `ls -la` before attempting upload, confirming 
    real image data existed before troubleshooting the upload code further
    Lesson: use curl -L for downloading images
+6. Symptom: Deployed backend on Render returned 404 "Not Found" with header 
+   x-render-routing: no-server, even though the deploy itself showed "succeeded"
+   Cause:   A manually-set PORT=4000 environment variable in Render's dashboard 
+   overrode Render's own dynamically-assigned port, so the app was listening on 
+   a port Render's internal router wasn't forwarding traffic to
+   Fix:     Deleted the manual PORT env var entirely, letting the existing 
+   `process.env.PORT || 5000` fallback in index.js correctly pick up Render's 
+   auto-assigned port (10000)
+   Lesson:  On a platform like Render, avoid setting manual PORT env vars for Node.js apps unless you understand exactly how their routing works; let the platform's own dynamic port assignment work with your `process.env.PORT || default` pattern.
+7. Symptom: Live backend crashed on any database query with "Error: connect 
+   ENETUNREACH <IPv6 address>:5432", even though the app deployed and started 
+   successfully
+   Cause:   Supabase's direct connection string resolves to an IPv6 address by 
+   default, and Render's network doesn't support outbound IPv6 connections
+   Fix:     Switched DATABASE_URL to Supabase's connection pooler URL instead, 
+   which is IPv4-compatible
+   Lesson:  Supabase's direct connection string doesn't work on Render; use 
+   their connection pooler URL instead. Their docs have a note about this — 
+   always check provider docs for compatibility issues before assuming your own 
+   code will work on a new platform.
 
 # 8. What I would do differently at 100x scale
 <Three bullets. This is the question senior interviewers always ask.>
