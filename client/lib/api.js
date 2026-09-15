@@ -1,4 +1,4 @@
-const API_URL = 'http://localhost:4000/api';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
 
 export async function apiRequest(path, options = {}) {
   const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
