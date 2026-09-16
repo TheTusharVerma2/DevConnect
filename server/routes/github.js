@@ -8,8 +8,16 @@ router.get('/:githubUsername/repos', async (req, res) => {
     const { githubUsername } = req.params;
     const cacheKey = `github-repos:${githubUsername}`;
 
-    // TODO 1: Check Redis first for a cached response
-    const cached = await redisClient.get(cacheKey);
+    // Try checking Redis cache
+    let cached = null;
+    try {
+      if (redisClient.isOpen) {
+        cached = await redisClient.get(cacheKey);
+      }
+    } catch (cacheErr) {
+      console.warn('Redis read error:', cacheErr.message);
+    }
+
     if (cached) {
       console.log('Cache HIT for', githubUsername);
       return res.json(JSON.parse(cached));
@@ -17,14 +25,27 @@ router.get('/:githubUsername/repos', async (req, res) => {
 
     console.log('Cache MISS for', githubUsername, '— calling GitHub API');
 
-    // TODO 2: Cache miss — call the real GitHub API
-    const githubResponse = await fetch(`https://api.github.com/users/${githubUsername}/repos`);
+    const githubResponse = await fetch(`https://api.github.com/users/${githubUsername}/repos?sort=updated&per_page=10`, {
+      headers: {
+        'User-Agent': 'DevConnect-App'
+      }
+    });
+
+    if (!githubResponse.ok) {
+      return res.status(githubResponse.status).json({ error: 'Failed to fetch repositories from GitHub' });
+    }
+
     const data = await githubResponse.json();
 
-    // TODO 3: Store the result in Redis, expiring after 10 minutes (600 seconds)
-    await redisClient.setEx(cacheKey, 600, JSON.stringify(data));
+    // Try setting Redis cache
+    try {
+      if (redisClient.isOpen) {
+        await redisClient.setEx(cacheKey, 600, JSON.stringify(data));
+      }
+    } catch (cacheErr) {
+      console.warn('Redis write error:', cacheErr.message);
+    }
 
-    // TODO 4: Return the fresh data
     return res.json(data);
 
   } catch (err) {

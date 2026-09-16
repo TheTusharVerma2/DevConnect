@@ -58,3 +58,19 @@ describe('GET /api/posts', () => {
     expect(res.status).toBe(200);
   });
 });
+
+describe('GET /api/posts/feed', () => {
+  it('returns personalized feed for authenticated user', async () => {
+    const res = await request(app)
+      .get('/api/posts/feed')
+      .set('Authorization', `Bearer ${accessToken}`);
+
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.posts)).toBe(true);
+  });
+
+  it('rejects unauthenticated access to personalized feed', async () => {
+    const res = await request(app).get('/api/posts/feed');
+    expect(res.status).toBe(401);
+  });
+});
