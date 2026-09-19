@@ -2,8 +2,6 @@
 
 A full-stack developer social platform — profiles, posts, comments, likes, GitHub integration, and search.
 
-**Live:** https://dev-connect-pi-ebon.vercel.app
-
 ## Tech Stack
 React, Next.js, Node.js, Express, PostgreSQL, Redis, JWT, Cloudinary
 
