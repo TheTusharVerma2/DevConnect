@@ -1,6 +1,29 @@
+'use client';
+
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { apiRequest } from '@/lib/api';
 
 export default function Home() {
+  const [currentUser, setCurrentUser] = useState(null);
+
+  useEffect(() => {
+    async function checkAuth() {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+      if (token) {
+        try {
+          const data = await apiRequest('/profile/me');
+          setCurrentUser(data.profile);
+        } catch {
+          setCurrentUser({ username: 'developer' });
+        }
+      } else {
+        setCurrentUser(null);
+      }
+    }
+    checkAuth();
+  }, []);
+
   return (
     <div className="flex flex-col items-center justify-center py-12 md:py-20 text-center relative overflow-hidden">
       
@@ -27,18 +50,39 @@ export default function Home() {
 
       {/* CTA Buttons */}
       <div className="mt-10 flex flex-col sm:flex-row items-center gap-4 w-full sm:w-auto justify-center">
-        <Link
-          href="/register"
-          className="gradient-button text-white font-semibold text-base px-8 py-3.5 rounded-xl shadow-lg shadow-blue-500/25 hover:scale-105 transition-all w-full sm:w-auto"
-        >
-          Create Free Account &rarr;
-        </Link>
-        <Link
-          href="/feed"
-          className="glass-card hover:bg-slate-800/80 text-slate-200 font-medium text-base px-8 py-3.5 rounded-xl border border-slate-700/80 transition-all w-full sm:w-auto"
-        >
-          Explore Feed
-        </Link>
+        {currentUser ? (
+          /* Logged In CTAs: NO Get Started / Register button */
+          <>
+            <Link
+              href="/feed"
+              className="gradient-button text-white font-semibold text-base px-8 py-3.5 rounded-xl shadow-lg shadow-blue-500/25 hover:scale-105 transition-all w-full sm:w-auto"
+            >
+              Go to Feed &rarr;
+            </Link>
+            <Link
+              href={`/profile/${currentUser.username}`}
+              className="glass-card hover:bg-slate-800/80 text-slate-200 font-medium text-base px-8 py-3.5 rounded-xl border border-slate-700/80 transition-all w-full sm:w-auto"
+            >
+              View My Profile
+            </Link>
+          </>
+        ) : (
+          /* Logged Out CTAs */
+          <>
+            <Link
+              href="/register"
+              className="gradient-button text-white font-semibold text-base px-8 py-3.5 rounded-xl shadow-lg shadow-blue-500/25 hover:scale-105 transition-all w-full sm:w-auto"
+            >
+              Create Free Account &rarr;
+            </Link>
+            <Link
+              href="/feed"
+              className="glass-card hover:bg-slate-800/80 text-slate-200 font-medium text-base px-8 py-3.5 rounded-xl border border-slate-700/80 transition-all w-full sm:w-auto"
+            >
+              Explore Feed
+            </Link>
+          </>
+        )}
       </div>
 
       {/* Feature Showcase Grid */}

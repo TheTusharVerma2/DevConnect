@@ -13,6 +13,9 @@ export default function ViewProfilePage() {
   const [followMsg, setFollowMsg] = useState('');
   const [isFollowing, setIsFollowing] = useState(false);
   const [followersCount, setFollowersCount] = useState(0);
+  const [isOwner, setIsOwner] = useState(false);
+  const [syncingGithub, setSyncingGithub] = useState(false);
+  const [githubUser, setGithubUser] = useState('');
 
   useEffect(() => {
     async function loadProfile() {
@@ -23,15 +26,26 @@ export default function ViewProfilePage() {
         setFollowersCount(data.profile.followers_count || 0);
 
         // Extract github username from social_links or fallback to profile username
-        let githubUser = username;
+        let ghHandle = username;
         if (data.profile.social_links) {
           const match = data.profile.social_links.match(/github:([a-zA-Z0-9_-]+)/i);
           if (match && match[1]) {
-            githubUser = match[1];
+            ghHandle = match[1];
           }
         }
+        setGithubUser(ghHandle);
+        fetchGitHubRepos(ghHandle);
 
-        fetchGitHubRepos(githubUser);
+        // Check if logged in user is owner
+        try {
+          const meData = await apiRequest('/profile/me');
+          if (meData.profile && meData.profile.username === data.profile.username) {
+            setIsOwner(true);
+          }
+        } catch {
+          setIsOwner(false);
+        }
+
       } catch (err) {
         setError(err.message);
       }
@@ -39,10 +53,10 @@ export default function ViewProfilePage() {
     loadProfile();
   }, [username]);
 
-  async function fetchGitHubRepos(githubUsername) {
+  async function fetchGitHubRepos(handle) {
     setLoadingRepos(true);
     try {
-      const data = await apiRequest(`/github/${githubUsername}/repos`);
+      const data = await apiRequest(`/github/${handle}/repos`);
       if (Array.isArray(data)) {
         setRepos(data);
       }
@@ -50,6 +64,27 @@ export default function ViewProfilePage() {
       console.warn('GitHub repos fetch error:', err.message);
     } finally {
       setLoadingRepos(false);
+    }
+  }
+
+  async function handleSyncGithub() {
+    if (!githubUser) return;
+    setSyncingGithub(true);
+    try {
+      const res = await apiRequest('/github/sync', {
+        method: 'POST',
+        body: JSON.stringify({ githubUsername: githubUser }),
+      });
+      if (res.profile) {
+        setProfile(res.profile);
+      }
+      if (res.repos) {
+        setRepos(res.repos);
+      }
+    } catch (err) {
+      console.warn('Sync failed:', err.message);
+    } finally {
+      setSyncingGithub(false);
     }
   }
 
@@ -88,6 +123,8 @@ export default function ViewProfilePage() {
     ? profile.skills.split(',').map((s) => s.trim()).filter(Boolean)
     : [];
 
+  const avatarSrc = githubUser ? `https://github.com/${githubUser}.png` : null;
+
   return (
     <div className="max-w-4xl mx-auto py-8 flex flex-col gap-8">
       
@@ -97,11 +134,32 @@ export default function ViewProfilePage() {
 
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div className="flex items-center gap-5">
-            <div className="w-20 h-20 rounded-2xl bg-gradient-to-tr from-cyan-500 to-indigo-600 text-slate-950 font-black text-3xl flex items-center justify-center shadow-lg shadow-cyan-500/20">
+            {avatarSrc ? (
+              <img
+                src={avatarSrc}
+                alt={profile.username}
+                className="w-20 h-20 rounded-2xl object-cover border-2 border-cyan-500/40 shadow-lg shadow-cyan-500/20"
+                onError={(e) => {
+                  e.target.style.display = 'none';
+                  e.target.nextSibling.style.display = 'flex';
+                }}
+              />
+            ) : null}
+            <div
+              className={`w-20 h-20 rounded-2xl bg-gradient-to-tr from-cyan-500 to-indigo-600 text-slate-950 font-black text-3xl flex items-center justify-center shadow-lg shadow-cyan-500/20 ${avatarSrc ? 'hidden' : 'flex'}`}
+            >
               {profile.username[0]?.toUpperCase()}
             </div>
+
             <div>
-              <h1 className="text-3xl font-extrabold text-white tracking-tight">@{profile.username}</h1>
+              <div className="flex items-center gap-3">
+                <h1 className="text-3xl font-extrabold text-white tracking-tight">@{profile.username}</h1>
+                {githubUser && (
+                  <span className="px-2.5 py-0.5 rounded-full bg-slate-800/80 border border-slate-700 text-[11px] text-cyan-400 font-mono flex items-center gap-1">
+                    <span>🐙</span> github.com/{githubUser}
+                  </span>
+                )}
+              </div>
               {profile.bio && <p className="text-sm text-slate-300 mt-1 max-w-lg">{profile.bio}</p>}
               <div className="flex items-center gap-4 mt-3 text-xs text-slate-400 font-mono">
                 <span><strong className="text-white">{followersCount}</strong> Followers</span>
@@ -111,19 +169,39 @@ export default function ViewProfilePage() {
             </div>
           </div>
 
-          {/* Follow Button */}
-          <div>
-            <button
-              onClick={handleFollowToggle}
-              className={`px-6 py-2.5 rounded-xl text-sm font-semibold transition-all ${
-                isFollowing
-                  ? 'bg-slate-800 hover:bg-red-950 hover:text-red-400 text-slate-200 border border-slate-700'
-                  : 'gradient-button text-white shadow-lg shadow-blue-500/20'
-              }`}
-            >
-              {isFollowing ? 'Following ✓' : '+ Follow'}
-            </button>
-            {followMsg && <p className="text-xs text-slate-400 mt-1 text-center">{followMsg}</p>}
+          {/* Action Buttons */}
+          <div className="flex flex-col gap-2">
+            {!isOwner ? (
+              <div>
+                <button
+                  onClick={handleFollowToggle}
+                  className={`w-full px-6 py-2.5 rounded-xl text-sm font-semibold transition-all ${
+                    isFollowing
+                      ? 'bg-slate-800 hover:bg-red-950 hover:text-red-400 text-slate-200 border border-slate-700'
+                      : 'gradient-button text-white shadow-lg shadow-blue-500/20'
+                  }`}
+                >
+                  {isFollowing ? 'Following ✓' : '+ Follow'}
+                </button>
+                {followMsg && <p className="text-xs text-slate-400 mt-1 text-center">{followMsg}</p>}
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleSyncGithub}
+                  disabled={syncingGithub}
+                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-cyan-400 text-xs font-semibold transition-all flex items-center gap-1.5"
+                >
+                  <span>⚡</span> {syncingGithub ? 'Syncing...' : 'Sync GitHub'}
+                </button>
+                <a
+                  href="/profile/edit"
+                  className="px-4 py-2 rounded-xl gradient-button text-white text-xs font-semibold shadow-md shadow-blue-500/20"
+                >
+                  Edit Profile
+                </a>
+              </div>
+            )}
           </div>
         </div>
 

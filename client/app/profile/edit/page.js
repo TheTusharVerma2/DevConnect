@@ -12,6 +12,10 @@ export default function EditProfilePage() {
   const [experience, setExperience] = useState('');
   const [education, setEducation] = useState('');
   const [socialLinks, setSocialLinks] = useState('');
+  const [githubUsernameInput, setGithubUsernameInput] = useState('');
+  const [syncingGithub, setSyncingGithub] = useState(false);
+  const [githubSyncMsg, setGithubSyncMsg] = useState('');
+
   const [isExisting, setIsExisting] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -29,6 +33,13 @@ export default function EditProfilePage() {
           setExperience(data.profile.experience || '');
           setEducation(data.profile.education || '');
           setSocialLinks(data.profile.social_links || '');
+
+          if (data.profile.social_links) {
+            const match = data.profile.social_links.match(/github:([a-zA-Z0-9_-]+)/i);
+            if (match && match[1]) {
+              setGithubUsernameInput(match[1]);
+            }
+          }
         }
       } catch (err) {
         setIsExisting(false);
@@ -36,6 +47,35 @@ export default function EditProfilePage() {
     }
     loadProfile();
   }, []);
+
+  async function handleGithubSync() {
+    if (!githubUsernameInput.trim()) {
+      setGithubSyncMsg('⚠️ Please enter a GitHub username first.');
+      return;
+    }
+
+    setGithubSyncMsg('');
+    setSyncingGithub(true);
+    try {
+      const data = await apiRequest('/github/sync', {
+        method: 'POST',
+        body: JSON.stringify({ githubUsername: githubUsernameInput.trim() }),
+      });
+
+      if (data.profile) {
+        setBio(data.profile.bio || '');
+        setSkills(data.profile.skills || '');
+        setSocialLinks(data.profile.social_links || '');
+        setIsExisting(true);
+      }
+
+      setGithubSyncMsg(`✅ GitHub profile & repositories synced successfully for @${githubUsernameInput.trim()}!`);
+    } catch (err) {
+      setGithubSyncMsg(`⚠️ GitHub sync failed: ${err.message}`);
+    } finally {
+      setSyncingGithub(false);
+    }
+  }
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -90,6 +130,53 @@ export default function EditProfilePage() {
         <p className="text-sm text-slate-400 mt-1">
           Build your public developer resume, skills showcase, and GitHub links.
         </p>
+      </div>
+
+      {/* GitHub Sync Feature Card */}
+      <div id="github" className="mb-8 p-5 rounded-xl bg-slate-900/90 border border-slate-800 shadow-lg">
+        <div className="flex items-center gap-3 mb-2">
+          <span className="text-2xl">🐙</span>
+          <div>
+            <h3 className="text-base font-semibold text-white">Sync Profile with GitHub</h3>
+            <p className="text-xs text-slate-400">
+              Auto-import bio, tech stack languages, and top repositories directly from your GitHub profile.
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-4 flex flex-col sm:flex-row items-center gap-3">
+          <div className="relative w-full sm:flex-1">
+            <span className="absolute left-3 top-2.5 text-slate-500 text-xs font-mono">github.com/</span>
+            <input
+              type="text"
+              placeholder="username"
+              value={githubUsernameInput}
+              onChange={(e) => setGithubUsernameInput(e.target.value)}
+              className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-24 pr-3 py-2 text-xs text-slate-100 placeholder-slate-600 focus:outline-none focus:border-blue-500"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={handleGithubSync}
+            disabled={syncingGithub}
+            className="w-full sm:w-auto px-5 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-semibold shadow-md shadow-blue-500/20 disabled:opacity-50 transition-all flex items-center justify-center gap-2 whitespace-nowrap"
+          >
+            {syncingGithub ? (
+              <>
+                <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                Syncing...
+              </>
+            ) : (
+              '⚡ Sync GitHub Data'
+            )}
+          </button>
+        </div>
+
+        {githubSyncMsg && (
+          <p className="text-xs mt-3 p-2.5 rounded-lg bg-slate-950 border border-slate-800 text-slate-300">
+            {githubSyncMsg}
+          </p>
+        )}
       </div>
 
       <form onSubmit={handleSubmit} className="flex flex-col gap-5">

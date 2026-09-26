@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { apiRequest, logout } from '@/lib/api';
@@ -9,7 +9,9 @@ export default function Navbar() {
   const router = useRouter();
   const [currentUser, setCurrentUser] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const dropdownRef = useRef(null);
 
   useEffect(() => {
     async function checkAuth() {
@@ -19,14 +21,29 @@ export default function Navbar() {
           const data = await apiRequest('/profile/me');
           setCurrentUser(data.profile);
         } catch (e) {
-          // Token expired or invalid
-          setCurrentUser(null);
+          try {
+            const test = await apiRequest('/protected-test');
+            setCurrentUser({ username: 'developer', email: 'Logged in developer', isNew: true });
+          } catch {
+            setCurrentUser(null);
+          }
         }
       } else {
         setCurrentUser(null);
       }
     }
     checkAuth();
+  }, []);
+
+  // Close dropdown on click outside
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setIsDropdownOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
   function handleSearchSubmit(e) {
@@ -36,6 +53,16 @@ export default function Navbar() {
       setSearchQuery('');
     }
   }
+
+  // Extract GitHub username for avatar if available
+  let githubHandle = null;
+  if (currentUser?.social_links) {
+    const match = currentUser.social_links.match(/github:([a-zA-Z0-9_-]+)/i);
+    if (match && match[1]) {
+      githubHandle = match[1];
+    }
+  }
+  const avatarSrc = githubHandle ? `https://github.com/${githubHandle}.png` : null;
 
   return (
     <nav className="sticky top-0 z-50 glass-card border-b border-slate-800/80 px-4 lg:px-8 py-3">
@@ -84,33 +111,98 @@ export default function Navbar() {
           </Link>
 
           {currentUser ? (
-            <div className="flex items-center gap-3 pl-2 border-l border-slate-800">
-              <Link
-                href={`/profile/${currentUser.username}`}
-                className="flex items-center gap-2 bg-slate-900/90 border border-slate-700/60 rounded-full py-1 px-3 hover:border-blue-500/50 transition-all"
+            /* Logged In State: NO Get Started button. Show Profile Icon with Dropdown */
+            <div className="relative" ref={dropdownRef}>
+              <button
+                onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+                className="flex items-center gap-2.5 p-1 rounded-full bg-slate-900 border border-slate-700/80 hover:border-blue-500/60 transition-all focus:outline-none"
+                aria-label="User menu"
               >
-                <div className="w-6 h-6 rounded-full bg-gradient-to-tr from-cyan-500 to-blue-500 text-slate-950 font-bold text-xs flex items-center justify-center">
+                {avatarSrc ? (
+                  <img
+                    src={avatarSrc}
+                    alt={currentUser.username}
+                    className="w-8 h-8 rounded-full object-cover border border-cyan-500/50"
+                    onError={(e) => {
+                      e.target.style.display = 'none';
+                      e.target.nextSibling.style.display = 'flex';
+                    }}
+                  />
+                ) : null}
+                <div
+                  className={`w-8 h-8 rounded-full bg-gradient-to-tr from-cyan-500 to-blue-600 text-slate-950 font-extrabold text-sm flex items-center justify-center ${
+                    avatarSrc ? 'hidden' : 'flex'
+                  }`}
+                >
                   {currentUser.username[0]?.toUpperCase()}
                 </div>
-                <span className="text-sm font-medium text-slate-200">@{currentUser.username}</span>
-              </Link>
-
-              <Link
-                href="/profile/edit"
-                className="text-xs text-slate-400 hover:text-blue-400 px-2 py-1 transition-colors"
-                title="Edit Profile"
-              >
-                Edit
-              </Link>
-
-              <button
-                onClick={logout}
-                className="text-xs bg-slate-800 hover:bg-red-950 hover:text-red-400 text-slate-300 px-3 py-1.5 rounded-lg border border-slate-700 transition-colors"
-              >
-                Logout
+                <span className="text-xs font-semibold text-slate-200 pr-1.5 hidden lg:inline">
+                  @{currentUser.username}
+                </span>
+                <svg
+                  className={`w-4 h-4 text-slate-400 pr-1 transition-transform ${isDropdownOpen ? 'rotate-180' : ''}`}
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
               </button>
+
+              {/* Profile Dropdown Menu */}
+              {isDropdownOpen && (
+                <div className="absolute right-0 mt-2 w-64 glass-card rounded-2xl border-slate-800 shadow-2xl py-2 z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150">
+                  {/* User Profile Header */}
+                  <div className="px-4 py-3 border-b border-slate-800 bg-slate-950/40">
+                    <p className="text-xs text-slate-400 font-medium">Signed in as</p>
+                    <p className="text-sm font-bold text-white truncate">@{currentUser.username}</p>
+                    {currentUser.email && (
+                      <p className="text-xs text-slate-400 truncate mt-0.5">{currentUser.email}</p>
+                    )}
+                  </div>
+
+                  <div className="py-1">
+                    <Link
+                      href={`/profile/${currentUser.username}`}
+                      onClick={() => setIsDropdownOpen(false)}
+                      className="flex items-center gap-2.5 px-4 py-2.5 text-xs font-medium text-slate-200 hover:bg-slate-800/70 hover:text-white transition-colors"
+                    >
+                      <span>👤</span> View Profile
+                    </Link>
+
+                    <Link
+                      href="/profile/edit"
+                      onClick={() => setIsDropdownOpen(false)}
+                      className="flex items-center gap-2.5 px-4 py-2.5 text-xs font-medium text-slate-200 hover:bg-slate-800/70 hover:text-white transition-colors"
+                    >
+                      <span>⚙️</span> Profile Settings
+                    </Link>
+
+                    <Link
+                      href="/profile/edit#github"
+                      onClick={() => setIsDropdownOpen(false)}
+                      className="flex items-center gap-2.5 px-4 py-2.5 text-xs font-medium text-cyan-400 hover:bg-slate-800/70 transition-colors"
+                    >
+                      <span>🐙</span> GitHub Profile Sync
+                    </Link>
+                  </div>
+
+                  <div className="pt-1 border-t border-slate-800/80">
+                    <button
+                      onClick={() => {
+                        setIsDropdownOpen(false);
+                        logout();
+                      }}
+                      className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-medium text-red-400 hover:bg-red-950/40 transition-colors text-left"
+                    >
+                      <span>🚪</span> Log Out
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           ) : (
+            /* Logged Out State: Show Log In & Get Started buttons */
             <div className="flex items-center gap-3">
               <Link
                 href="/login"
@@ -130,11 +222,11 @@ export default function Navbar() {
 
         {/* Mobile menu trigger */}
         <button
-          onClick={() => setIsMenuOpen(!isMenuOpen)}
+          onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
           className="md:hidden text-slate-300 hover:text-white p-2"
         >
           <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            {isMenuOpen ? (
+            {isMobileMenuOpen ? (
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             ) : (
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
@@ -144,7 +236,7 @@ export default function Navbar() {
       </div>
 
       {/* Mobile Dropdown */}
-      {isMenuOpen && (
+      {isMobileMenuOpen && (
         <div className="md:hidden mt-3 pt-3 border-t border-slate-800 flex flex-col gap-3 pb-2">
           <form onSubmit={handleSearchSubmit} className="relative">
             <input
@@ -163,17 +255,18 @@ export default function Navbar() {
           <Link href="/search" className="text-slate-300 text-sm py-1">Explore</Link>
 
           {currentUser ? (
-            <>
-              <Link href={`/profile/${currentUser.username}`} className="text-blue-400 text-sm py-1">
-                Profile (@{currentUser.username})
-              </Link>
-              <Link href="/profile/edit" className="text-slate-300 text-sm py-1">Edit Profile</Link>
-              <button onClick={logout} className="text-left text-red-400 text-sm py-1">Logout</button>
-            </>
+            <div className="flex flex-col gap-2 pt-2 border-t border-slate-800">
+              <div className="flex items-center gap-2 text-sm text-blue-400 font-semibold py-1">
+                <span>👤</span> @{currentUser.username}
+              </div>
+              <Link href={`/profile/${currentUser.username}`} className="text-slate-300 text-sm py-1">View Profile</Link>
+              <Link href="/profile/edit" className="text-slate-300 text-sm py-1">Profile Settings</Link>
+              <button onClick={logout} className="text-left text-red-400 text-sm py-1">Log Out</button>
+            </div>
           ) : (
             <div className="flex gap-2 pt-2 border-t border-slate-800">
               <Link href="/login" className="flex-1 text-center py-2 bg-slate-800 rounded-lg text-sm">Log In</Link>
-              <Link href="/register" className="flex-1 text-center py-2 gradient-button text-sm rounded-lg">Register</Link>
+              <Link href="/register" className="flex-1 text-center py-2 gradient-button text-sm rounded-lg">Get Started</Link>
             </div>
           )}
         </div>

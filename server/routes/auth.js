@@ -2,111 +2,90 @@ import express from 'express';
 import bcrypt from 'bcrypt';
 import pool from '../db.js';
 import jwt from 'jsonwebtoken';
+import { validateEmailExists } from '../utils/emailValidator.js';
 
 const router = express.Router();
+
 // register router
 router.post('/register', async (req, res) => {
   try {
     const { email, password } = req.body;
-    // TODO 1: Basic validation — if email or password is missing, 
-    // respond with a 400 status and an error message, then `return`
-    // so the function stops here.
     if (!email || !password) {
       return res.status(400).json({ error: 'Email and password are required' });
     }
 
-    // TODO 2: Hash the password using bcrypt.hash(). 
-    // Use a cost factor of 10.
-    const hashedPassword = await bcrypt.hash(password, 10);
-    
+    const emailCheck = await validateEmailExists(email);
+    if (!emailCheck.valid) {
+      return res.status(400).json({ error: emailCheck.error });
+    }
+    const cleanEmail = emailCheck.email;
 
-    // TODO 3: Insert a new row into the `users` table with the 
-    // email and the HASHED password (never the plain one).
-    // Use pool.query() — look at how we did it in /api/db-test 
-    // for the syntax, but this time you're inserting, not selecting.
-    // Hint: parameterized query looks like:
-    //   pool.query('INSERT INTO users (email, password_hash) VALUES ($1, $2) RETURNING id, email', [email, hashedPassword])
+    const hashedPassword = await bcrypt.hash(password, 10);
+
     const result = await pool.query(
       'INSERT INTO users (email, password_hash) VALUES ($1, $2) RETURNING id, email',
-      [email, hashedPassword]
+      [cleanEmail, hashedPassword]
     );
-    // TODO 4: Send back a 201 status with the new user's id and email 
-    // (never send back the password hash)
-    const {id, email : userEmail} = result.rows[0];
-    return res.status(201).json({user : {id, email : userEmail}});
+
+    const { id, email: userEmail } = result.rows[0];
+    return res.status(201).json({ user: { id, email: userEmail } });
 
   } catch (err) {
     console.error(err);
     if (err.code === '23505') {
-    return res.status(409).json({ error: 'Email already registered' });
-  }
-  res.status(500).json({ error: 'Registration failed' });
+      return res.status(409).json({ error: 'Email already registered' });
+    }
+    res.status(500).json({ error: 'Registration failed' });
   }
 });
 
-
-
-
-
- //login router
+// login router
 router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    // TODO 1: Validation — same as register, if email or password missing, 
-    // return 400.
-    if(!email || !password){
-        return res.status(400).json({error : "Email and password are required"});
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password are required' });
     }
 
-    // TODO 2: Look up the user by email using pool.query().
-    // SELECT id, email, password_hash FROM users WHERE email = $1
-    // Hint: result.rows will be an EMPTY array if no user matches — 
-    // check result.rows.length === 0, and if so, return 401 
-    // with a generic message like "Invalid credentials" 
-    // (never reveal "email not found" specifically — that leaks 
-    // which emails are registered)
-const result = await pool.query(
-  'SELECT id, email, password_hash FROM users WHERE email = $1',
-  [email]
-);
-if (result.rows.length === 0) {
-  return res.status(401).json({ error: 'Invalid credentials' });
-}
-const user = result.rows[0];
+    const emailCheck = await validateEmailExists(email);
+    if (!emailCheck.valid) {
+      return res.status(400).json({ error: emailCheck.error });
+    }
+    const cleanEmail = emailCheck.email;
 
-    // TODO 3: Compare the submitted password against the stored hash 
-    // using bcrypt.compare(plainPassword, hash) — it returns a boolean.
-    // If it doesn't match, return 401 with the SAME generic message 
-    // as TODO 2 (again — don't reveal whether it was the email or 
-    // password that was wrong)
-const passwordMatch = await bcrypt.compare(password, user.password_hash);
-if (passwordMatch === false) {
-  return res.status(401).json({ error: 'Invalid credentials' });
-}
+    const result = await pool.query(
+      'SELECT id, email, password_hash FROM users WHERE email = $1',
+      [cleanEmail]
+    );
+    if (result.rows.length === 0) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+    const user = result.rows[0];
 
-    // TODO 4 (given to you, this part's new):
-const accessToken = jwt.sign(
-    { userId: user.id }, 
-    process.env.JWT_SECRET, 
-    { expiresIn: '15m' }
-);
-const refreshToken = jwt.sign(
-    { userId: user.id }, 
-    process.env.JWT_REFRESH_SECRET, 
-    { expiresIn: '7d' }
-);
-// NEW: save the refresh token to the database
-const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days from now
-await pool.query(
-  'INSERT INTO refresh_tokens (user_id, token, expires_at) VALUES ($1, $2, $3)',
-  [user.id, refreshToken, expiresAt]
-);
+    const passwordMatch = await bcrypt.compare(password, user.password_hash);
+    if (passwordMatch === false) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
 
+    const accessToken = jwt.sign(
+      { userId: user.id }, 
+      process.env.JWT_SECRET, 
+      { expiresIn: '15m' }
+    );
+    const refreshToken = jwt.sign(
+      { userId: user.id }, 
+      process.env.JWT_REFRESH_SECRET, 
+      { expiresIn: '7d' }
+    );
 
-    // TODO 5: Send back both tokens and the user's id/email 
-    // (still never the password hash) as JSON, status 200
-   return res.json({ accessToken, refreshToken, user: { id: user.id, email: user.email } });
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    await pool.query(
+      'INSERT INTO refresh_tokens (user_id, token, expires_at) VALUES ($1, $2, $3)',
+      [user.id, refreshToken, expiresAt]
+    );
+
+    return res.json({ accessToken, refreshToken, user: { id: user.id, email: user.email } });
 
   } catch (err) {
     console.error(err);
@@ -114,24 +93,94 @@ await pool.query(
   }
 });
 
+// forgot password router
+router.post('/forgot-password', async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({ error: 'Email address is required' });
+    }
 
+    const emailCheck = await validateEmailExists(email);
+    if (!emailCheck.valid) {
+      return res.status(400).json({ error: emailCheck.error });
+    }
 
+    const result = await pool.query('SELECT id, email FROM users WHERE email = $1', [emailCheck.email]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'No account found with this email address' });
+    }
 
-//refresh
+    const user = result.rows[0];
+
+    const resetToken = jwt.sign(
+      { userId: user.id, purpose: 'password_reset' },
+      process.env.JWT_SECRET,
+      { expiresIn: '30m' }
+    );
+
+    return res.json({
+      message: 'Password reset token generated successfully!',
+      resetToken,
+      resetUrl: `/reset-password?token=${resetToken}`
+    });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to process forgot password request' });
+  }
+});
+
+// reset password router
+router.post('/reset-password', async (req, res) => {
+  try {
+    const { token, newPassword } = req.body;
+
+    if (!token || !newPassword) {
+      return res.status(400).json({ error: 'Reset token and new password are required' });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters long' });
+    }
+
+    let decoded;
+    try {
+      decoded = jwt.verify(token, process.env.JWT_SECRET);
+      if (decoded.purpose !== 'password_reset') {
+        return res.status(400).json({ error: 'Invalid password reset token' });
+      }
+    } catch (err) {
+      return res.status(400).json({ error: 'Invalid or expired password reset token' });
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+    await pool.query(
+      'UPDATE users SET password_hash = $1 WHERE id = $2',
+      [hashedPassword, decoded.userId]
+    );
+
+    await pool.query('DELETE FROM refresh_tokens WHERE user_id = $1', [decoded.userId]);
+
+    return res.json({ message: 'Password reset successfully! You can now log in with your new password.' });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to reset password' });
+  }
+});
+
+// refresh router
 router.post('/refresh', async (req, res) => {
   try {
     const { refreshToken } = req.body;
 
-    // TODO 1: If no refreshToken was sent, return 401 
-    // with { error: 'No refresh token provided' }
-     if (!refreshToken) {
+    if (!refreshToken) {
       return res.status(401).json({ error: 'No refresh token provided' });
     }
-    // TODO 2: Verify it using jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET)
-    // (this can throw — but you're already in a try/catch, so that's handled)
-    // Store the result in a variable like `decoded`
     const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
- // NEW: check the token still exists in the database
+
     const result = await pool.query(
       'SELECT * FROM refresh_tokens WHERE token = $1',
       [refreshToken]
@@ -139,18 +188,16 @@ router.post('/refresh', async (req, res) => {
     if (result.rows.length === 0) {
       return res.status(401).json({ error: 'Refresh token has been revoked' });
     }
-    // TODO 3: Issue a brand NEW access token using decoded.userId, 
-    // same as you did in /login (JWT_SECRET, expiresIn: '15m')
+
     const newAccessToken = jwt.sign(
       { userId: decoded.userId },
       process.env.JWT_SECRET,
       { expiresIn: '15m' }
     );
-    // TODO 4: Return the new access token as JSON, e.g. { accessToken: newAccessToken }
     return res.json({ accessToken: newAccessToken });
 
   } catch (err) {
-    console.error(err); // add this line
+    console.error(err);
     return res.status(401).json({ error: 'Invalid or expired refresh token' });
   }
 });
