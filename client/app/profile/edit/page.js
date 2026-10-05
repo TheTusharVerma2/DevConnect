@@ -59,17 +59,23 @@ export default function EditProfilePage() {
     try {
       const data = await apiRequest('/github/sync', {
         method: 'POST',
-        body: JSON.stringify({ githubUsername: githubUsernameInput.trim() }),
+        body: JSON.stringify({ 
+          githubUsername: githubUsernameInput.trim(),
+          username: username.trim() || undefined
+        }),
       });
 
       if (data.profile) {
         setBio(data.profile.bio || '');
         setSkills(data.profile.skills || '');
         setSocialLinks(data.profile.social_links || '');
+        if (data.profile.username && !username.trim()) {
+          setUsername(data.profile.username);
+        }
         setIsExisting(true);
       }
 
-      setGithubSyncMsg(`✅ GitHub profile & repositories synced successfully for @${githubUsernameInput.trim()}!`);
+      setGithubSyncMsg(`✅ GitHub profile & repositories synced successfully for GitHub user @${githubUsernameInput.trim()}!`);
     } catch (err) {
       setGithubSyncMsg(`⚠️ GitHub sync failed: ${err.message}`);
     } finally {
@@ -83,11 +89,14 @@ export default function EditProfilePage() {
     setSuccess('');
     setLoading(true);
 
+    const trimmedUsername = username.trim();
+
     try {
       if (isExisting) {
         await apiRequest('/profile', {
           method: 'PUT',
           body: JSON.stringify({
+            username: trimmedUsername,
             bio,
             skills,
             experience,
@@ -100,7 +109,7 @@ export default function EditProfilePage() {
         await apiRequest('/profile', {
           method: 'POST',
           body: JSON.stringify({
-            username,
+            username: trimmedUsername,
             bio,
             skills,
             experience,
@@ -112,7 +121,7 @@ export default function EditProfilePage() {
         setIsExisting(true);
       }
       setTimeout(() => {
-        router.push(`/profile/${username}`);
+        router.push(`/profile/${trimmedUsername}`);
       }, 1000);
     } catch (err) {
       setError(err.message);
@@ -184,23 +193,22 @@ export default function EditProfilePage() {
         {/* Username */}
         <div>
           <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
-            Username {!isExisting && <span className="text-red-400">*</span>}
+            DevConnect Username <span className="text-red-400">*</span>
           </label>
           <div className="relative">
             <span className="absolute left-3.5 top-2.5 text-slate-500 text-sm font-mono">@</span>
             <input
               type="text"
-              placeholder="octocat"
+              placeholder="username"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              disabled={isExisting}
-              className="w-full bg-slate-900/90 border border-slate-700/80 rounded-xl pl-8 pr-4 py-2 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500 disabled:opacity-60"
+              className="w-full bg-slate-900/90 border border-slate-700/80 rounded-xl pl-8 pr-4 py-2 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-blue-500"
               required
             />
           </div>
-          {isExisting && (
-            <p className="text-[11px] text-slate-500 mt-1">Username cannot be changed once created.</p>
-          )}
+          <p className="text-[11px] text-slate-500 mt-1">
+            You can change your DevConnect username anytime. It is independent of your GitHub profile handle.
+          </p>
         </div>
 
         {/* Bio */}

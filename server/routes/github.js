@@ -60,7 +60,7 @@ router.get('/:githubUsername/repos', async (req, res) => {
 // POST sync GitHub profile and repos for authenticated user
 router.post('/sync', authenticateToken, async (req, res) => {
   try {
-    let { githubUsername } = req.body;
+    let { githubUsername, username } = req.body;
 
     // Check existing user profile if username not explicitly passed
     const existingProfileRes = await pool.query(
@@ -154,11 +154,12 @@ router.post('/sync', authenticateToken, async (req, res) => {
       updatedProfile = updateRes.rows[0];
     } else {
       // Create profile if doesn't exist
+      const desiredUsername = (username && username.trim()) ? username.trim() : githubUsername;
       const insertRes = await pool.query(
         `INSERT INTO profiles (user_id, username, bio, skills, social_links)
          VALUES ($1, $2, $3, $4, $5)
          RETURNING *`,
-        [req.userId, githubUsername, newBio, skillsStr, socialLinks]
+        [req.userId, desiredUsername, newBio, skillsStr, socialLinks]
       );
       updatedProfile = insertRes.rows[0];
     }

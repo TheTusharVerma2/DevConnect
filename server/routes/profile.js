@@ -29,15 +29,22 @@ router.get('/me', authenticateToken, async (req, res) => {
 // UPDATE profile (partial updates)
 router.put('/', authenticateToken, async (req, res) => {
   try {
-    const allowedFields = ['bio', 'skills', 'experience', 'education', 'social_links'];
+    const allowedFields = ['username', 'bio', 'skills', 'experience', 'education', 'social_links'];
     const updates = [];
     const values = [];
     let paramIndex = 1;
 
     for (const field of allowedFields) {
       if (req.body[field] !== undefined) {
+        let val = req.body[field];
+        if (field === 'username') {
+          if (typeof val === 'string') val = val.trim();
+          if (!val) {
+            return res.status(400).json({ error: 'Username cannot be empty' });
+          }
+        }
         updates.push(`${field} = $${paramIndex}`);
-        values.push(req.body[field]);
+        values.push(val);
         paramIndex++;
       }
     }
@@ -60,6 +67,9 @@ router.put('/', authenticateToken, async (req, res) => {
 
   } catch (err) {
     console.error(err);
+    if (err.code === '23505') {
+      return res.status(409).json({ error: 'Username is already taken' });
+    }
     res.status(500).json({ error: 'Failed to update profile' });
   }
 });

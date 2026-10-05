@@ -25,8 +25,8 @@ export default function ViewProfilePage() {
         setIsFollowing(data.profile.is_following || false);
         setFollowersCount(data.profile.followers_count || 0);
 
-        // Extract github username from social_links or fallback to profile username
-        let ghHandle = username;
+        // Extract github username from social_links (do not fallback to profile username)
+        let ghHandle = null;
         if (data.profile.social_links) {
           const match = data.profile.social_links.match(/github:([a-zA-Z0-9_-]+)/i);
           if (match && match[1]) {
@@ -34,7 +34,11 @@ export default function ViewProfilePage() {
           }
         }
         setGithubUser(ghHandle);
-        fetchGitHubRepos(ghHandle);
+        if (ghHandle) {
+          fetchGitHubRepos(ghHandle);
+        } else {
+          setRepos([]);
+        }
 
         // Check if logged in user is owner
         try {
@@ -257,10 +261,18 @@ export default function ViewProfilePage() {
           <span className="text-xs text-slate-400 font-mono">Synced from GitHub</span>
         </div>
 
-        {loadingRepos ? (
-          <p className="text-sm text-slate-400">Fetching GitHub repositories...</p>
+        {!githubUser ? (
+          <p className="text-sm text-slate-400">
+            No GitHub account linked to this profile. {isOwner && (
+              <a href="/profile/edit#github" className="text-cyan-400 underline hover:text-cyan-300 ml-1">
+                Link your GitHub profile in settings
+              </a>
+            )}
+          </p>
+        ) : loadingRepos ? (
+          <p className="text-sm text-slate-400">Fetching GitHub repositories for @{githubUser}...</p>
         ) : repos.length === 0 ? (
-          <p className="text-sm text-slate-400">No public GitHub repositories found for this user.</p>
+          <p className="text-sm text-slate-400">No public GitHub repositories found for @{githubUser}.</p>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {repos.map((repo) => (
