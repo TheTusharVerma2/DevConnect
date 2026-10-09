@@ -5,10 +5,28 @@ import authenticateToken from '../middleware/auth.js';
 
 const router = express.Router();
 
+function getGithubHeaders() {
+  const headers = {
+    'User-Agent': 'DevConnect-App',
+    'Accept': 'application/vnd.github.v3+json'
+  };
+  const token = process.env.GITHUB_TOKEN || process.env.GITHUB_PAT;
+  if (token && token.trim()) {
+    headers['Authorization'] = `Bearer ${token.trim()}`;
+  }
+  return headers;
+}
+
 // GET public repositories for a given GitHub username
 router.get('/:githubUsername/repos', async (req, res) => {
   try {
-    const { githubUsername } = req.params;
+    let { githubUsername } = req.params;
+    githubUsername = githubUsername
+      .replace(/^https?:\/\/(www\.)?github\.com\//i, '')
+      .replace(/^@/, '')
+      .replace(/\/$/, '')
+      .trim();
+
     const cacheKey = `github-repos:${githubUsername}`;
 
     // Try checking Redis cache
@@ -29,13 +47,18 @@ router.get('/:githubUsername/repos', async (req, res) => {
     console.log('Cache MISS for', githubUsername, '— calling GitHub API');
 
     const githubResponse = await fetch(`https://api.github.com/users/${githubUsername}/repos?sort=updated&per_page=10`, {
-      headers: {
-        'User-Agent': 'DevConnect-App'
-      }
+      headers: getGithubHeaders()
     });
 
     if (!githubResponse.ok) {
-      return res.status(githubResponse.status).json({ error: 'Failed to fetch repositories from GitHub' });
+      const errJson = await githubResponse.json().catch(() => ({}));
+      const isRateLimit = githubResponse.status === 403 || githubResponse.status === 429;
+      return res.status(githubResponse.status).json({
+        error: isRateLimit
+          ? (errJson.message || 'GitHub API rate limit reached')
+          : (errJson.message || 'Failed to fetch repositories from GitHub'),
+        rateLimited: isRateLimit
+      });
     }
 
     const data = await githubResponse.json();
@@ -60,7 +83,7 @@ router.get('/:githubUsername/repos', async (req, res) => {
 // POST sync GitHub profile and repos for authenticated user
 router.post('/sync', authenticateToken, async (req, res) => {
   try {
-    let { githubUsername, username } = req.body;
+    let { githubUsername, username, githubData, repos } = req.body;
 
     // Check existing user profile if username not explicitly passed
     const existingProfileRes = await pool.query(
@@ -81,39 +104,56 @@ router.post('/sync', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: 'GitHub username is required to sync profile' });
     }
 
-    githubUsername = githubUsername.trim();
+    githubUsername = githubUsername
+      .replace(/^https?:\/\/(www\.)?github\.com\//i, '')
+      .replace(/^@/, '')
+      .replace(/\/$/, '')
+      .trim();
 
-    // Fetch GitHub User Info
-    const userRes = await fetch(`https://api.github.com/users/${githubUsername}`, {
-      headers: { 'User-Agent': 'DevConnect-App' }
-    });
+    // If client did not provide pre-fetched githubData, fetch it from GitHub
+    if (!githubData || typeof githubData !== 'object') {
+      const userRes = await fetch(`https://api.github.com/users/${githubUsername}`, {
+        headers: getGithubHeaders()
+      });
 
-    if (!userRes.ok) {
-      if (userRes.status === 404) {
-        return res.status(404).json({ error: `GitHub account "@${githubUsername}" not found` });
+      if (!userRes.ok) {
+        const errJson = await userRes.json().catch(() => ({}));
+        if (userRes.status === 404) {
+          return res.status(404).json({ error: `GitHub account "@${githubUsername}" not found` });
+        }
+        const isRateLimit = userRes.status === 403 || userRes.status === 429;
+        return res.status(userRes.status).json({
+          error: isRateLimit
+            ? (errJson.message || 'GitHub API rate limit exceeded on server. Please configure GITHUB_TOKEN or retry.')
+            : (errJson.message || 'Failed to fetch GitHub profile info'),
+          rateLimited: isRateLimit
+        });
       }
-      return res.status(userRes.status).json({ error: 'Failed to fetch GitHub profile info' });
+
+      githubData = await userRes.json();
     }
 
-    const githubData = await userRes.json();
+    // If client did not provide pre-fetched repos, fetch them from GitHub
+    if (!Array.isArray(repos)) {
+      const reposRes = await fetch(`https://api.github.com/users/${githubUsername}/repos?sort=updated&per_page=15`, {
+        headers: getGithubHeaders()
+      });
 
-    // Fetch GitHub User Repos
-    const reposRes = await fetch(`https://api.github.com/users/${githubUsername}/repos?sort=updated&per_page=15`, {
-      headers: { 'User-Agent': 'DevConnect-App' }
-    });
-
-    let repos = [];
-    let detectedLanguages = [];
-    if (reposRes.ok) {
-      repos = await reposRes.json();
-      if (Array.isArray(repos)) {
-        const langs = repos.map(r => r.language).filter(Boolean);
-        detectedLanguages = [...new Set(langs)];
+      if (reposRes.ok) {
+        repos = await reposRes.json();
+      } else {
+        repos = [];
       }
+    }
+
+    let detectedLanguages = [];
+    if (Array.isArray(repos)) {
+      const langs = repos.map(r => r.language).filter(Boolean);
+      detectedLanguages = [...new Set(langs)];
 
       // Cache repos in Redis
       try {
-        if (redisClient.isOpen) {
+        if (redisClient.isOpen && repos.length > 0) {
           await redisClient.setEx(`github-repos:${githubUsername}`, 600, JSON.stringify(repos));
         }
       } catch (cacheErr) {

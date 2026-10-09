@@ -58,14 +58,32 @@ export default function ViewProfilePage() {
   }, [username]);
 
   async function fetchGitHubRepos(handle) {
+    const cleanHandle = (handle || '').replace(/^https?:\/\/(www\.)?github\.com\//i, '').replace(/^@/, '').replace(/\/$/, '').trim();
+    if (!cleanHandle) return;
+
     setLoadingRepos(true);
     try {
-      const data = await apiRequest(`/github/${handle}/repos`);
-      if (Array.isArray(data)) {
+      const data = await apiRequest(`/github/${cleanHandle}/repos`);
+      if (Array.isArray(data) && data.length > 0) {
         setRepos(data);
+        return;
       }
+      throw new Error('Fallback to direct GitHub fetch');
     } catch (err) {
-      console.warn('GitHub repos fetch error:', err.message);
+      console.warn('Backend repos fetch error (trying direct client fallback):', err.message);
+      try {
+        const directRes = await fetch(`https://api.github.com/users/${encodeURIComponent(cleanHandle)}/repos?sort=updated&per_page=15`);
+        if (directRes.ok) {
+          const directRepos = await directRes.json();
+          if (Array.isArray(directRepos)) {
+            setRepos(directRepos);
+            return;
+          }
+        }
+      } catch (fallbackErr) {
+        console.warn('Direct GitHub fetch failed:', fallbackErr.message);
+      }
+      setRepos([]);
     } finally {
       setLoadingRepos(false);
     }
@@ -73,12 +91,43 @@ export default function ViewProfilePage() {
 
   async function handleSyncGithub() {
     if (!githubUser) return;
+    const cleanHandle = githubUser.replace(/^https?:\/\/(www\.)?github\.com\//i, '').replace(/^@/, '').replace(/\/$/, '').trim();
     setSyncingGithub(true);
     try {
-      const res = await apiRequest('/github/sync', {
-        method: 'POST',
-        body: JSON.stringify({ githubUsername: githubUser }),
-      });
+      let res;
+      try {
+        res = await apiRequest('/github/sync', {
+          method: 'POST',
+          body: JSON.stringify({ githubUsername: cleanHandle }),
+        });
+      } catch (serverErr) {
+        // Fallback: fetch from browser if server is rate-limited
+        const ghUserRes = await fetch(`https://api.github.com/users/${encodeURIComponent(cleanHandle)}`);
+        if (!ghUserRes.ok) {
+          throw new Error(serverErr.message || `GitHub error ${ghUserRes.status}`);
+        }
+        const githubData = await ghUserRes.json();
+
+        let repos = [];
+        try {
+          const ghReposRes = await fetch(`https://api.github.com/users/${encodeURIComponent(cleanHandle)}/repos?sort=updated&per_page=15`);
+          if (ghReposRes.ok) {
+            repos = await ghReposRes.json();
+          }
+        } catch {
+          // ignore repos failure
+        }
+
+        res = await apiRequest('/github/sync', {
+          method: 'POST',
+          body: JSON.stringify({
+            githubUsername: cleanHandle,
+            githubData,
+            repos
+          }),
+        });
+      }
+
       if (res.profile) {
         setProfile(res.profile);
       }

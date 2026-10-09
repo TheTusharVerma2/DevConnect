@@ -101,4 +101,29 @@ describe('POST /api/github/sync (Username Decoupling)', () => {
     // social_links must contain github:octocat
     expect(syncRes.body.profile.social_links).toMatch(/github:octocat/i);
   });
+
+  it('syncs using pre-fetched githubData and repos (rate limit fallback)', async () => {
+    const syncRes = await request(app)
+      .post('/api/github/sync')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({
+        githubUsername: 'https://github.com/fallback-user/',
+        githubData: {
+          name: 'Fallback User',
+          bio: 'Pre-fetched fallback bio',
+          public_repos: 5,
+          followers: 10
+        },
+        repos: [
+          { name: 'repo-1', language: 'TypeScript' },
+          { name: 'repo-2', language: 'Rust' }
+        ]
+      });
+
+    expect(syncRes.status).toBe(200);
+    expect(syncRes.body.profile.social_links).toMatch(/github:fallback-user/i);
+    expect(syncRes.body.profile.skills).toMatch(/TypeScript/i);
+    expect(syncRes.body.profile.skills).toMatch(/Rust/i);
+  });
 });
+

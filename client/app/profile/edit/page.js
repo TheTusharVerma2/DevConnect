@@ -49,21 +49,66 @@ export default function EditProfilePage() {
   }, []);
 
   async function handleGithubSync() {
-    if (!githubUsernameInput.trim()) {
+    const rawInput = githubUsernameInput.trim();
+    if (!rawInput) {
       setGithubSyncMsg('⚠️ Please enter a GitHub username first.');
       return;
     }
 
+    // Strip URL prefixes if user pasted full profile link or @
+    const cleanUsername = rawInput
+      .replace(/^https?:\/\/(www\.)?github\.com\//i, '')
+      .replace(/^@/, '')
+      .replace(/\/$/, '')
+      .trim();
+
     setGithubSyncMsg('');
     setSyncingGithub(true);
     try {
-      const data = await apiRequest('/github/sync', {
-        method: 'POST',
-        body: JSON.stringify({ 
-          githubUsername: githubUsernameInput.trim(),
-          username: username.trim() || undefined
-        }),
-      });
+      let data;
+      try {
+        data = await apiRequest('/github/sync', {
+          method: 'POST',
+          body: JSON.stringify({ 
+            githubUsername: cleanUsername,
+            username: username.trim() || undefined
+          }),
+        });
+      } catch (serverErr) {
+        // If server failed (e.g. rate limit on shared cloud IP), fetch directly from GitHub via client browser as fallback
+        try {
+          const ghUserRes = await fetch(`https://api.github.com/users/${encodeURIComponent(cleanUsername)}`);
+          if (!ghUserRes.ok) {
+            if (ghUserRes.status === 404) {
+              throw new Error(`GitHub user "@${cleanUsername}" not found.`);
+            }
+            throw new Error(serverErr.message || `GitHub returned status ${ghUserRes.status}`);
+          }
+          const githubData = await ghUserRes.json();
+
+          let repos = [];
+          try {
+            const ghReposRes = await fetch(`https://api.github.com/users/${encodeURIComponent(cleanUsername)}/repos?sort=updated&per_page=15`);
+            if (ghReposRes.ok) {
+              repos = await ghReposRes.json();
+            }
+          } catch {
+            // Repos fetch is non-fatal
+          }
+
+          data = await apiRequest('/github/sync', {
+            method: 'POST',
+            body: JSON.stringify({
+              githubUsername: cleanUsername,
+              username: username.trim() || undefined,
+              githubData,
+              repos
+            }),
+          });
+        } catch (fallbackErr) {
+          throw new Error(fallbackErr.message || serverErr.message);
+        }
+      }
 
       if (data.profile) {
         setBio(data.profile.bio || '');
@@ -75,7 +120,7 @@ export default function EditProfilePage() {
         setIsExisting(true);
       }
 
-      setGithubSyncMsg(`✅ GitHub profile & repositories synced successfully for GitHub user @${githubUsernameInput.trim()}!`);
+      setGithubSyncMsg(`✅ GitHub profile & repositories synced successfully for GitHub user @${cleanUsername}!`);
     } catch (err) {
       setGithubSyncMsg(`⚠️ GitHub sync failed: ${err.message}`);
     } finally {
